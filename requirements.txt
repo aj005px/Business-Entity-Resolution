@@ -1,0 +1,12 @@
+# Business Entity Resolution -- Python 3.10+ dependencies (pinned)
+# All packages below are open source with permissive licenses (MIT / BSD / Apache-2.0).
+numpy==2.4.6
+pandas==3.0.3
+scipy==1.17.1
+scikit-learn==1.8.0
+pyarrow==24.0.0
+rapidfuzz==3.6.2
+joblib==1.5.3
+lightgbm==4.6.0
+# optional fallbacks (used only if lightgbm is not installed):
+# xgboost==3.0.3
