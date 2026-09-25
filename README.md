@@ -1,4 +1,4 @@
-# Business Entity Resolution — Power Puff Girls
+# Business Entity Resolution 
 
 Match noisy `source2`/`source3` business records to `source1` entities using
 only `business_name`, `business_address` and `country`. The competition metric
