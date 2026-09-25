@@ -1,0 +1,36 @@
+HOW TO RUN (send this to your friend)
+
+Hii! Thanks for running this. It takes ~2-3 hours and needs Python 3.10+ and ~15GB of free disk. Here is what to do:
+
+STEP 1 - Get the code and the data
+  - Clone the private repo:
+      git clone https://github.com/aj005px/Business-Entity-Resolution.git
+      cd Business-Entity-Resolution
+  - You ALSO need the competition dataset folder (called student_resource). Put it somewhere on your machine and link it in the project folder:
+      ln -s /path/to/student_resource/dataset dataset
+  - Check it worked:
+      ls dataset/train/ dataset/test/
+
+STEP 2 - Install packages
+  - pip install -r requirements.txt
+  - pip install lightgbm
+  (If pip says "externally managed" / refuses, add --break-system-packages to the lightgbm command.)
+
+STEP 3 - Run the whole pipeline
+  - bash run_all.sh 16
+  - Let it finish (~2-3 hours). It trains a model on the train split, then predicts on the test split.
+
+STEP 4 - Send back the result file
+  - Upload FILE: output/matching_results.tsv
+  - (Optional check before sending, from the student_resource folder:)
+      python3 utils/validate_submission.py --matching <project>/output/matching_results.tsv --candidate <project>/output/candidate_pairs.tsv --test-dir dataset/test --check-ids
+    It should print: PASS
+
+TROUBLESHOOTING
+  - Out of memory: run "bash run_all.sh 8" instead of 16.
+  - Crash mid-run: just re-run the same command, it resumes where it stopped.
+  - Missing dataset: the symlink in step 1 is the usual cause.
+
+The file to send back is only:  output/matching_results.tsv
+
+Thanks!!
