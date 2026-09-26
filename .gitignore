@@ -3,6 +3,10 @@
 
 # the dataset is provided separately (symlinked in by the person running)
 /dataset
+/student_resource
+
+# macOS archive metadata
+__MACOSX/
 
 # generated submission files
 /output/*
