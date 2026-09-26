@@ -37,13 +37,21 @@ def _load_model(train_split: str, backend: str):
         import lightgbm as lgb
 
         bst = lgb.Booster(model_file=str(model_dir / "model.txt"))
-        return lambda X: bst.predict(X, num_iteration=bst.best_iteration) if False else bst.predict(X)
+        return lambda X: bst.predict(X)
     if backend == "xgboost":
         import xgboost as xgb
 
         bst = xgb.Booster()
         bst.load_model(str(model_dir / "model.json"))
-        return lambda X: bst.predict(xgb.DMatrix(X), iteration_range=(0, bst.best_iteration + 1))
+        try:
+            end = int(bst.attr("best_iteration"))
+            n_trees = bst.num_boosted_rounds()
+            if 0 <= end < n_trees:
+                return lambda X: bst.predict(xgb.DMatrix(X), iteration_range=(0, end + 1))
+            print(f"[infer] best_iteration={end} >= n_trees={n_trees}; using all trees")
+        except (AttributeError, TypeError, ValueError):
+            pass
+        return lambda X: bst.predict(xgb.DMatrix(X))
     import joblib
 
     model = joblib.load(model_dir / "model_gbc.pkl")
@@ -104,8 +112,8 @@ def run_inference(test_split: str, cfg: Config, threshold: float | None = None) 
     cand_path = OUTPUT_DIR / "candidate_pairs.tsv"
     match_path = OUTPUT_DIR / "matching_results.tsv"
     BLOCK = 50_000
-    cand_w = open(cand_path, "w", encoding="utf-8")
-    match_w = open(match_path, "w", encoding="utf-8")
+    cand_w = open(cand_path, "w", encoding="utf-8", newline="\n")
+    match_w = open(match_path, "w", encoding="utf-8", newline="\n")
     cand_w.write("source1_entity_id\tcandidate_entity_ids\n")
     match_w.write("source1_entity_id\tmatched_entity_ids\n")
 

@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Entity Resolution — Model Report</title>
+<style>
+  :root{
+    --bg:#f4f5f7; --card:#ffffff; --ink:#16181d; --muted:#5f6672;
+    --line:#e2e5ea; --accent:#1f5fa8; --accent-soft:#eaf1fa;
+    --good:#1c7a4a; --warn:#a8681a; --bad:#a83232;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  .wrap{max-width:1000px; margin:0 auto; padding:32px 20px 64px}
+  header{margin-bottom:24px}
+  h1{font-size:26px; font-weight:650; letter-spacing:-.2px; margin:0 0 6px}
+  .sub{color:var(--muted); font-size:14px}
+  .card{background:var(--card); border:1px solid var(--line); border-radius:8px; padding:22px 24px; margin-bottom:18px}
+  h2{font-size:15px; font-weight:650; text-transform:uppercase; letter-spacing:.7px; color:var(--muted); margin:0 0 16px}
+  h3{font-size:14px; font-weight:650; margin:22px 0 10px}
+  .grid{display:grid; gap:12px}
+  .g4{grid-template-columns:repeat(4,1fr)}
+  .g2{grid-template-columns:repeat(2,1fr)}
+  @media(max-width:720px){.g4,.g2{grid-template-columns:repeat(2,1fr)}}
+  .stat{border:1px solid var(--line); border-radius:6px; padding:14px 16px}
+  .stat .k{font-size:11px; text-transform:uppercase; letter-spacing:.6px; color:var(--muted)}
+  .stat .v{font-size:27px; font-weight:660; letter-spacing:-.5px; margin-top:4px; font-variant-numeric:tabular-nums}
+  .stat .n{font-size:12px; color:var(--muted); margin-top:2px}
+  .hero{background:var(--accent-soft); border-color:#c9dcf1}
+  .hero .v{color:var(--accent)}
+  table{width:100%; border-collapse:collapse; font-size:14px}
+  th,td{text-align:left; padding:8px 10px; border-bottom:1px solid var(--line)}
+  th{font-size:11px; text-transform:uppercase; letter-spacing:.6px; color:var(--muted); font-weight:600}
+  td.num,th.num{text-align:right; font-variant-numeric:tabular-nums}
+  tbody tr:last-child td{border-bottom:none}
+  .bar{height:9px; background:#e9ecf1; border-radius:5px; overflow:hidden; margin-top:7px}
+  .bar > i{display:block; height:100%; border-radius:5px}
+  .row{margin-bottom:16px}
+  .row:last-child{margin-bottom:0}
+  .row .lab{display:flex; justify-content:space-between; font-size:13px; margin-bottom:2px}
+  .row .lab b{font-weight:600}
+  .row .lab span{color:var(--muted); font-variant-numeric:tabular-nums}
+  .note{border-left:3px solid var(--line); padding:2px 0 2px 14px; color:var(--muted); font-size:13.5px; margin:12px 0}
+  .note.warn{border-color:var(--warn)}
+  .note.bad{border-color:var(--bad)}
+  .note b{color:var(--ink)}
+  .tag{display:inline-block; font-size:11px; font-weight:600; letter-spacing:.4px; padding:2px 7px; border-radius:4px; text-transform:uppercase}
+  .tag.ok{background:#e4f2ea; color:var(--good)}
+  .tag.warn{background:#fbf1e2; color:var(--warn)}
+  .tag.bad{background:#fbe9e9; color:var(--bad)}
+  code{font:13px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace; background:#f0f2f5; padding:1px 5px; border-radius:4px}
+  .legend{display:flex; gap:20px; font-size:12.5px; color:var(--muted); margin-top:8px; flex-wrap:wrap}
+  .legend i{display:inline-block; width:18px; height:3px; vertical-align:middle; margin-right:6px; border-radius:2px}
+  footer{color:var(--muted); font-size:12.5px; text-align:center; margin-top:28px}
+  ul{margin:8px 0 0; padding-left:20px} li{margin:3px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Business Entity Resolution — Model Report</h1>
+  <div class="sub">
+    Source1 &rarr; Source2 + Source3 &middot; trained <span id="ts"></span> &middot;
+    NVIDIA GeForce GTX 1650 (4&nbsp;GB) &middot; XGBoost on CUDA
+  </div>
+</header>
+
+<div class="card hero">
+  <h2>Final validation score</h2>
+  <div class="grid g4">
+    <div class="stat hero">
+      <div class="k">Macro F<sub>0.5</sub></div>
+      <div class="v">0.9082</div>
+      <div class="n">primary metric</div>
+    </div>
+    <div class="stat">
+      <div class="k">Precision</div>
+      <div class="v">0.9413</div>
+      <div class="n">at threshold 0.950</div>
+    </div>
+    <div class="stat">
+      <div class="k">Recall</div>
+      <div class="v">0.8468</div>
+      <div class="n">ceiling is 0.8657</div>
+    </div>
+    <div class="stat">
+      <div class="k">Best F1</div>
+      <div class="v">0.9089</div>
+      <div class="n">at threshold 0.850</div>
+    </div>
+  </div>
+  <div class="note warn" style="margin-top:18px">
+    <b>Read this before using the number.</b> F<sub>0.5</sub> = 0.9082 is a <b>validation</b> score measured on
+    a held-out 20% split of the 200,000 blocked training queries. The test split is unlabelled, so the score the
+    submission actually receives is <b>not known</b>. F<sub>0.5</sub> weights precision twice as heavily as recall,
+    which is why the operating point sits at a high threshold of 0.950.
+  </div>
+</div>
+
+<div class="card">
+  <h2>How much data was actually used</h2>
+
+  <div class="row">
+    <div class="lab"><b>Train split &mdash; blocked &amp; used for training</b><span>200,000 / 2,206,821 &middot; 9.06%</span></div>
+    <div class="bar"><i style="width:9.06%; background:var(--bad)"></i></div>
+  </div>
+  <div class="row">
+    <div class="lab"><b>Train split &mdash; feature matrix actually fit</b><span>1,432,214 rows &times; 18 features</span></div>
+    <div class="bar"><i style="width:100%; background:var(--good)"></i></div>
+  </div>
+  <div class="row">
+    <div class="lab"><b>Test split &mdash; blocking (candidate generation)</b><span>1,732,544 / 1,732,544 &middot; 100%</span></div>
+    <div class="bar"><i style="width:100%; background:var(--good)"></i></div>
+  </div>
+  <div class="row">
+    <div class="lab"><b>Test split &mdash; features computed (scored by the model)</b><span>156 / 522 slices &middot; 29.9%</span></div>
+    <div class="bar"><i style="width:29.9%; background:var(--warn)"></i></div>
+  </div>
+
+  <h3>Training set composition</h3>
+  <table>
+    <thead><tr><th>Quantity</th><th class="num">Count</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td>Source1 queries blocked</td><td class="num">200,000</td><td>first 10 chunks of 110</td></tr>
+      <tr><td>Candidate pairs generated</td><td class="num">23,532,127</td><td>avg 117.7 candidates/query</td></tr>
+      <tr><td>True positive pairs captured</td><td class="num">598,724</td><td>86.57% of 691,588 in ground truth</td></tr>
+      <tr><td>Rows fed to the model (fit)</td><td class="num">1,432,214</td><td>477,407 positive + 954,807 negative</td></tr>
+      <tr><td>Rows in early-stopping eval set</td><td class="num">363,914</td><td>balanced 1:2 negative sampling</td></tr>
+      <tr><td>Rows scored for threshold tuning</td><td class="num">4,748,751</td><td>full validation candidate space, streamed</td></tr>
+    </tbody>
+  </table>
+
+  <div class="note bad">
+    <b>Submission coverage is 28%, not 100%.</b> Blocking covered every test entity, but features were only
+    computed for 156 of 522 slices before the run was cut short. Every one of the 1,732,544 test entities is present
+    in the output files, but roughly <b>70% have an empty candidate list</b> because their features were never
+    computed. Resuming <code>features --split test --start-chunk 26</code> (~1.9&nbsp;h) and re-running
+    <code>infer</code> (~8&nbsp;min) fills those in.
+  </div>
+</div>
+
+<div class="card">
+  <h2>Model configuration</h2>
+  <div class="grid g2">
+    <table>
+      <thead><tr><th>Parameter</th><th class="num">Value</th></tr></thead>
+      <tbody>
+        <tr><td>Backend</td><td class="num">XGBoost 3.4.1</td></tr>
+        <tr><td>Device</td><td class="num">cuda <span class="tag ok">verified</span></td></tr>
+        <tr><td>Tree method</td><td class="num">hist</td></tr>
+        <tr><td>Trees (n_estimators)</td><td class="num">400</td></tr>
+        <tr><td>Best iteration</td><td class="num">399</td></tr>
+        <tr><td>Max depth</td><td class="num">8</td></tr>
+        <tr><td>Max bin</td><td class="num">256</td></tr>
+        <tr><td>scale_pos_weight</td><td class="num">2.00</td></tr>
+        <tr><td>Validation fraction</td><td class="num">0.20</td></tr>
+        <tr><td>Negative sampling</td><td class="num">1 : 2 per positive</td></tr>
+        <tr><td>Eval cap</td><td class="num">6,000,000 rows</td></tr>
+        <tr><td>Peak GPU memory</td><td class="num">223 MB</td></tr>
+        <tr><td>Fit time</td><td class="num">11.0 s</td></tr>
+        <tr><td>Total train step</td><td class="num">29.9 s</td></tr>
+      </tbody>
+    </table>
+    <table>
+      <thead><tr><th>The 18 input features</th><th class="num">Gain share</th></tr></thead>
+      <tbody>
+        <tr><td>addr_token_jaccard</td><td class="num">54.96%</td></tr>
+        <tr><td>addr_token_overlap</td><td class="num">8.14%</td></tr>
+        <tr><td>name_trigram</td><td class="num">6.33%</td></tr>
+        <tr><td>addr_trigram</td><td class="num">5.45%</td></tr>
+        <tr><td>addr_char_len_r</td><td class="num">5.34%</td></tr>
+        <tr><td>name_token_jaccard</td><td class="num">3.29%</td></tr>
+        <tr><td>name_lev</td><td class="num">2.83%</td></tr>
+        <tr><td>name_token_overlap</td><td class="num">2.60%</td></tr>
+        <tr><td>name_char_len_r</td><td class="num">2.45%</td></tr>
+        <tr><td>addr_tfidf_cos</td><td class="num">2.29%</td></tr>
+        <tr><td>name_len_diff</td><td class="num">1.75%</td></tr>
+        <tr><td>addr_len_diff</td><td class="num">1.07%</td></tr>
+        <tr><td>addr_lev</td><td class="num">0.95%</td></tr>
+        <tr><td>name_tfidf_cos</td><td class="num">0.88%</td></tr>
+        <tr><td>block_score</td><td class="num">0.72%</td></tr>
+        <tr><td>addr_char_len_q</td><td class="num">0.53%</td></tr>
+        <tr><td>name_char_len_q</td><td class="num">0.43%</td></tr>
+        <tr><td>country_match</td><td class="num">0.00%</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="note">
+    <b>The model is almost entirely an address matcher.</b> <code>addr_token_jaccard</code> alone carries 55% of the
+    total gain; name similarity features contribute a small fraction in comparison. <code>country_match</code> scores
+    exactly zero because country is already a hard filter inside blocking, which makes the feature constant across
+    every surviving candidate. Both are worth revisiting if the model is extended.
+  </div>
+</div>
+
+<div class="card">
+  <h2>Threshold sweep</h2>
+  <svg viewBox="0 0 700 250" width="100%" height="250" role="img" aria-label="Precision, recall and F0.5 against decision threshold">
+    <g stroke="#e8eaee" stroke-width="1">
+      <line x1="40" y1="20"  x2="660" y2="20"/>
+      <line x1="40" y1="75"  x2="660" y2="75"/>
+      <line x1="40" y1="130" x2="660" y2="130"/>
+      <line x1="40" y1="185" x2="660" y2="185"/>
+    </g>
+    <g stroke="#c8cdd6" stroke-width="1">
+      <line x1="40" y1="20" x2="40" y2="220"/>
+      <line x1="660" y1="20" x2="660" y2="220"/>
+    </g>
+    <g font-size="10" fill="#8a919c" font-family="-apple-system,Segoe UI,Roboto,sans-serif">
+      <text x="32" y="24"  text-anchor="end">1.00</text>
+      <text x="32" y="79"  text-anchor="end">0.80</text>
+      <text x="32" y="134" text-anchor="end">0.60</text>
+      <text x="32" y="189" text-anchor="end">0.40</text>
+      <text x="40"  y="238" text-anchor="middle">0.05</text>
+      <text x="212" y="238" text-anchor="middle">0.30</text>
+      <text x="350" y="238" text-anchor="middle">0.50</text>
+      <text x="523" y="238" text-anchor="middle">0.75</text>
+      <text x="660" y="238" text-anchor="middle">0.95</text>
+      <text x="350" y="252" text-anchor="middle">decision threshold</text>
+    </g>
+    <polyline fill="none" stroke="#b9812a" stroke-width="2" stroke-linejoin="round"
+      points="40,20.3 74.4,20.7 143.3,21.6 212.2,22.7 281.1,24.2 350,26.4 418.9,29.5 487.8,34.8 522.2,38.0 556.7,42.2 591.1,47.3 625.6,57.9 646.2,66.5 653.1,70.7 660,75.7"/>
+    <polyline fill="none" stroke="#1f5fa8" stroke-width="2" stroke-linejoin="round"
+      points="40,208.5 74.4,187.1 143.3,161.6 212.2,143.1 281.1,127.7 350,113.3 418.9,98.9 487.8,82.4 522.2,74.1 556.7,66.4 591.1,58.8 625.6,51.8 646.2,47.8 653.1,45.6 660,41.3"/>
+    <polyline fill="none" stroke="#a83232" stroke-width="2.5" stroke-linejoin="round"
+      points="40,192.5 74.4,171.7 143.3,147.8 212.2,130.8 281.1,117.0 350,104.3 418.9,92.1 487.8,78.5 522.2,71.8 556.7,66.0 591.1,60.6 625.6,57.4 646.2,56.3 653.1,55.6 660,53.4"/>
+    <circle cx="660" cy="53.4" r="4" fill="#a83232"/>
+    <text x="648" y="42" font-size="10.5" fill="#a83232" text-anchor="end" font-weight="600">0.9082</text>
+  </svg>
+  <div class="legend">
+    <span><i style="background:#a83232"></i>F<sub>0.5</sub> (primary metric)</span>
+    <span><i style="background:#1f5fa8"></i>Precision</span>
+    <span><i style="background:#b9812a"></i>Recall</span>
+  </div>
+  <div class="note">
+    F<sub>0.5</sub> rises monotonically as the threshold climbs because precision is weighted double. The chosen
+    operating point (0.950) is the highest threshold in the sweep and still yields 0.8468 recall, which sits just
+    under the 0.8657 blocking ceiling &mdash; the classifier captures <b>97.9% of everything blocking allows</b>.
+  </div>
+</div>
+
+<div class="card">
+  <h2>Backend comparison</h2>
+  <table>
+    <thead><tr><th>Backend</th><th>Device</th><th class="num">Fit time</th><th class="num">F<sub>0.5</sub></th><th>Outcome</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><b>XGBoost</b></td><td>cuda <span class="tag ok">working</span></td>
+        <td class="num"><b>11.0 s</b></td><td class="num"><b>0.9082</b></td>
+        <td><span class="tag ok">selected</span> 3.5&times; faster, marginally better</td>
+      </tr>
+      <tr>
+        <td>LightGBM</td><td>cpu</td><td class="num">39.1 s</td><td class="num">0.9068</td>
+        <td><span class="tag warn">viable fallback</span></td>
+      </tr>
+      <tr>
+        <td>LightGBM</td><td>cuda</td><td class="num">&mdash;</td><td class="num">&mdash;</td>
+        <td><span class="tag bad">unavailable</span> build has no CUDA Tree Learner</td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="note">
+    Both backends produce statistically indistinguishable scores, so the GPU is a pure speed win here rather than an
+    accuracy win. The model trains in <b>11 seconds</b> &mdash; model fitting was never the bottleneck.
+  </div>
+</div>
+
+<div class="card">
+  <h2>Pipeline timings</h2>
+  <table>
+    <thead><tr><th>Stage</th><th class="num">Elapsed</th><th>Throughput / note</th></tr></thead>
+    <tbody>
+      <tr><td>Block &mdash; test, full split</td><td class="num">4 h 17 m</td><td>87/87 chunks, 4 processes, ~202M pairs, 2.19 GB</td></tr>
+      <tr><td>Block &mdash; train, 200k queries</td><td class="num">1 h 27 m</td><td>10/110 chunks, 23.5M pairs</td></tr>
+      <tr><td>Features &mdash; train, 200k queries</td><td class="num">47 m</td><td>23.5M pairs, 5 workers</td></tr>
+      <tr><td>Features &mdash; test (partial)</td><td class="num">~1 h</td><td>156/522 slices, 56.8M of ~202M pairs</td></tr>
+      <tr><td>Train (XGBoost CUDA)</td><td class="num">30 s</td><td>incl. two feature passes and streamed validation</td></tr>
+      <tr><td>Threshold tuning</td><td class="num">10 s</td><td>91 thresholds over 4,748,751 rows</td></tr>
+      <tr><td>Inference &mdash; test</td><td class="num">7 m 30 s</td><td>56.8M pairs scored, 1.73M entities written</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h2>Submission artifacts</h2>
+  <table>
+    <thead><tr><th>File</th><th class="num">Size</th><th>Contents</th></tr></thead>
+    <tbody>
+      <tr><td><code>output/matching_results.tsv</code></td><td class="num">42.9 MB</td><td>1,732,544 entities; 439,061 with &ge;1 match; 1,525,268 matched ids</td></tr>
+      <tr><td><code>output/candidate_pairs.tsv</code></td><td class="num">722.2 MB</td><td>every candidate above threshold 0.950</td></tr>
+      <tr><td><code>artifacts/train/model/model.json</code></td><td class="num">9.2 MB</td><td>XGBoost booster, 400 trees</td></tr>
+      <tr><td><code>artifacts/train/model/threshold.json</code></td><td class="num">&lt;1 KB</td><td>operating point 0.950 + full sweep</td></tr>
+      <tr><td><code>artifacts/train/model/params.json</code></td><td class="num">&lt;1 KB</td><td>backend, device, timings, importances</td></tr>
+    </tbody>
+  </table>
+  <div class="note">
+    Both TSV files carry a header row plus exactly one line per test entity, so the file shape is correct and
+    complete. Only the <em>content</em> is partial, because of the feature coverage described above.
+  </div>
+</div>
+
+<div class="card">
+  <h2>Known limitations</h2>
+  <ul>
+    <li><b>Blocking recall ceiling is 86.57%, not the 96.7% the README claims.</b> 13.4% of true pairs are never
+        generated as candidates, so no classifier can recover them &mdash; this hard-caps achievable recall.
+        Measured on a slice verified as representative (country mix 59.9/40.2 vs 60.0/40.0, mean name length
+        26.29 vs 26.27 chars), so it is not a sampling artifact.</li>
+    <li><b>Only 9.06% of the train split was blocked.</b> With 18 features and 400 trees the learning curve is flat
+        well before 1M rows, so this costs very little accuracy &mdash; but it is a real coverage gap, and it was a
+        deliberate trade to fit the time budget.</li>
+    <li><b>Test feature coverage is 29.9%.</b> This is the single biggest gap in the deliverable.</li>
+    <li><b>Train and test blocking used different token thresholds</b> (0.02 vs 0.008 document frequency) to buy a
+        2.5&times; speedup for 0.6 pt of recall. The resulting candidate sets differ by 0.3% of pairs.</li>
+    <li><b>The model is address-dominated</b> and <code>country_match</code> is inert, as described above.</li>
+  </ul>
+</div>
+
+<footer>
+  Generated from <code>artifacts/train/model/params.json</code> and <code>threshold.json</code> &middot;
+  all figures measured on this machine, none estimated except where explicitly marked.
+</footer>
+
+</div>
+<script>document.getElementById('ts').textContent = new Date().toLocaleString();</script>
+</body>
+</html>

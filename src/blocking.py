@@ -41,17 +41,17 @@ import scipy.sparse as sp
 
 from .config import BlockingConfig, Config, NormalizeConfig
 from .data_io import artifact_path, ensure_dir, load_df
-from .normalize import tokenize
+from .normalize import set_config, tokenize
 
-# float64 score buffer reused across all queries (zeroed per query)
-_SCORE_BUF: np.ndarray | None = None
+import threading
+
+_THREAD_LOCAL = threading.local()
 
 
 def _get_score_buf(n: int) -> np.ndarray:
-    global _SCORE_BUF
-    if _SCORE_BUF is None or _SCORE_BUF.size < n:
-        _SCORE_BUF = np.zeros(n, dtype=np.float64)
-    return _SCORE_BUF
+    if not hasattr(_THREAD_LOCAL, "buf") or _THREAD_LOCAL.buf.size < n:
+        _THREAD_LOCAL.buf = np.zeros(n, dtype=np.float64)
+    return _THREAD_LOCAL.buf
 
 
 def _reset(buf: np.ndarray, touched: np.ndarray) -> None:
@@ -233,20 +233,25 @@ def score_query(q_idx, q_tfidf_csr, postings, df, n_refs, ref_country, q_country
     tokens, w = _select_block_tokens(q_idx, q_tfidf_csr, df, n_refs, cfg)
     if len(tokens) == 0:
         return np.empty(0, np.int32), np.empty(0, np.float32)
-    touched: set[int] = set()
-    p = postings.indptr
+    touched_list = []
+    p_indptr = postings.indptr
+    p_indices = postings.indices
+    p_data = postings.data
     for tok, qw in zip(tokens, w):
-        s, e = p[tok], p[tok + 1]
-        refs = postings.indices[s:e]
-        wts = postings.data[s:e].astype(np.float64)
-        keep = refs[ref_country[refs] == q_country]
-        if len(keep) == 0:
+        s, e = p_indptr[tok], p_indptr[tok + 1]
+        if s == e:
             continue
-        np.add.at(buf, keep, qw * wts[ref_country[refs] == q_country])
-        touched.update(keep.tolist())
-    if not touched:
+        refs = p_indices[s:e]
+        mask = ref_country[refs] == q_country
+        if not np.any(mask):
+            continue
+        keep = refs[mask]
+        wts = p_data[s:e][mask].astype(np.float64)
+        np.add.at(buf, keep, qw * wts)
+        touched_list.append(keep)
+    if not touched_list:
         return np.empty(0, np.int32), np.empty(0, np.float32)
-    arr = np.fromiter(touched, dtype=np.int32)
+    arr = np.unique(np.concatenate(touched_list))
     vals = buf[arr]
     _reset(buf, arr)
     return _finalize_candidates(arr, vals, cfg)
@@ -373,60 +378,108 @@ def generate_candidates_for_chunk(q0, q1, indexes, cfg: BlockingConfig):
             np.concatenate(out_nc), np.concatenate(out_ac), np.concatenate(out_blk))
 
 
-_BLOCK_STATE: tuple | None = None
-
-
-def _block_init(indexes, cfg: BlockingConfig, src_of_ref):
-    global _BLOCK_STATE
-    _BLOCK_STATE = (indexes, cfg, src_of_ref)
-
-
-def _block_task(args):
-    q0, q1, c, split, out_dir = args
-    indexes, cfg, src_of_ref = _BLOCK_STATE
-    q, r, _, nc, ac, blk = generate_candidates_for_chunk(q0, q1, indexes, cfg)
+def _task_worker(args):
+    q0, q1, c, split, out_dir, idxs, config_b, src_ref = args
+    q, r, _, nc, ac, blk = generate_candidates_for_chunk(q0, q1, idxs, config_b)
     if len(q):
         frame = pd.DataFrame({
-            "q_idx": q, "r_idx": r, "source": src_of_ref[r],
+            "q_idx": q, "r_idx": r, "source": src_ref[r],
             "name_cos": nc, "addr_cos": ac, "block_score": blk,
         })
         frame.to_parquet(Path(out_dir) / f"cand_{c:06d}.parquet", index=False)
     return c, q1 - q0, len(q)
 
 
-def run_block(split: str, config: Config, start: int = 0, end: int | None = None,
-              jobs: int = 1):
-    cfg = config.blocking
-    indexes = {}
+# --- process-pool worker state -------------------------------------------
+# The index is ~1.2 GiB, so it must never travel inside a task payload (it would
+# be pickled once per chunk). Each worker loads it exactly once instead.
+_WORKER: dict = {}
+
+
+def _load_block_state(split: str) -> dict:
     split_dir = ensure_dir(artifact_path(split, ""))
+    indexes = {}
     for field in ("name", "addr"):
         indexes[field] = TfidfIndex().load(split_dir, field)
     indexes["name_query_tfidf"] = sp.load_npz(artifact_path(split, "name_query_tfidf.npz"))
     indexes["addr_query_tfidf"] = sp.load_npz(artifact_path(split, "addr_query_tfidf.npz"))
     indexes["name_query_country"] = np.load(artifact_path(split, "query_country_name.npy"))
     indexes["addr_query_country"] = np.load(artifact_path(split, "query_country_addr.npy"))
-    src_of_ref = load_df(artifact_path(split, "refs.parquet"))["source"].to_numpy(np.int8)
+    indexes["src_of_ref"] = pd.read_parquet(
+        artifact_path(split, "refs.parquet"), columns=["source"])["source"].to_numpy(np.int8)
+    return indexes
 
-    n_queries = indexes["name_query_tfidf"].shape[0]
+
+def _init_block_worker(split: str, out_dir: str) -> None:
+    set_config(Config())
+    _WORKER["indexes"] = _load_block_state(split)
+    _WORKER["out_dir"] = out_dir
+    _WORKER["cfg"] = Config().blocking
+
+
+def _task_worker_proc(task):
+    q0, q1, c = task
+    indexes = _WORKER["indexes"]
+    cfg = _WORKER["cfg"]
+    q, r, _, nc, ac, blk = generate_candidates_for_chunk(q0, q1, indexes, cfg)
+    if len(q):
+        pd.DataFrame({
+            "q_idx": q, "r_idx": r, "source": indexes["src_of_ref"][r],
+            "name_cos": nc, "addr_cos": ac, "block_score": blk,
+        }).to_parquet(Path(_WORKER["out_dir"]) / f"cand_{c:06d}.parquet", index=False)
+    return c, q1 - q0, len(q)
+
+
+def _n_queries(split: str) -> int:
+    """Row count of source1 without materialising the frame."""
+    import pyarrow.parquet as pq
+    return pq.ParquetFile(artifact_path(split, "source1.parquet")).metadata.num_rows
+
+
+def run_block(split: str, config: Config, start: int = 0, end: int | None = None,
+              jobs: int = 1, executor: str = "auto"):
+    cfg = config.blocking
+    out_dir = ensure_dir(artifact_path(split, "candidates"))
+    n_queries = _n_queries(split)
     if end is None:
         end = n_queries
-    out_dir = ensure_dir(artifact_path(split, "candidates"))
     chunk = cfg.chunk_size
-    tasks = [(q0, min(q0 + chunk, end), c, split, str(out_dir))
-             for c, q0 in enumerate(range(start, end, chunk))]
-    if jobs > 1:
-        _block_init(indexes, cfg, src_of_ref)
-        with ProcessPoolExecutor(max_workers=jobs) as ex:
-            for c, nq, npairs in ex.map(_block_task, tasks):
-                if c % 20 == 0 or c == len(tasks) - 1:
+    tasks = [(q0, min(q0 + chunk, end), c) for c, q0 in enumerate(range(start, end, chunk))]
+
+    if executor == "auto":
+        executor = "process" if jobs > 1 else "serial"
+
+    if executor == "process" and jobs > 1:
+        # Parent stays lean: row count comes from parquet metadata, and the
+        # index is loaded inside each worker.
+        print(f"[block {split}] starting candidate generation with {jobs} processes ...", flush=True)
+        with ProcessPoolExecutor(max_workers=jobs, initializer=_init_block_worker,
+                                 initargs=(split, str(out_dir))) as ex:
+            for c, nq, npairs in ex.map(_task_worker_proc, tasks):
+                if c % 5 == 0 or c == len(tasks) - 1:
                     avg = int(npairs / nq) if nq else 0
-                    print(f"[block {split}] chunk {c} queries pairs {npairs} avg {avg}", flush=True)
+                    print(f"[block {split}] chunk {c + 1}/{len(tasks)} queries {nq} "
+                          f"pairs {npairs} avg {avg}", flush=True)
     else:
-        _block_init(indexes, cfg, src_of_ref)
-        for c, nq, npairs in map(_block_task, tasks):
-            if c % 20 == 0 or c == len(tasks) - 1:
+        print(f"[block {split}] loading index and reference data into memory ...", flush=True)
+        indexes = _load_block_state(split)
+        src_of_ref = indexes.pop("src_of_ref")
+        tasks_full = [(q0, q1, c, split, str(out_dir), indexes, cfg, src_of_ref)
+                      for q0, q1, c in tasks]
+        if executor == "thread" and jobs > 1:
+            from concurrent.futures import ThreadPoolExecutor
+            print(f"[block {split}] starting candidate generation with {jobs} threads ...", flush=True)
+            runner = ThreadPoolExecutor(max_workers=jobs)
+        else:
+            runner = None
+        it = runner.map(_task_worker, tasks_full) if runner else map(_task_worker, tasks_full)
+        for c, nq, npairs in it:
+            if c % 5 == 0 or c == len(tasks) - 1:
                 avg = int(npairs / nq) if nq else 0
-                print(f"[block {split}] chunk {c} queries {nq} pairs {npairs} avg {avg}", flush=True)
+                print(f"[block {split}] chunk {c + 1}/{len(tasks)} queries {nq} "
+                      f"pairs {npairs} avg {avg}", flush=True)
+        if runner:
+            runner.shutdown()
     print(f"[block {split}] done. chunks={len(tasks)}")
     gc.collect()
 
@@ -438,11 +491,13 @@ def main(argv=None):
     ap.add_argument("--end", type=int, default=None)
     ap.add_argument("--max-candidates", type=int, default=None)
     ap.add_argument("--jobs", type=int, default=1)
+    ap.add_argument("--executor", default="auto", choices=["auto", "process", "thread", "serial"])
     args = ap.parse_args(argv)
     cfg = Config()
     if args.max_candidates:
         cfg.blocking.max_candidates_per_query = args.max_candidates
-    run_block(args.split, cfg, start=args.start, end=args.end, jobs=args.jobs)
+    run_block(args.split, cfg, start=args.start, end=args.end, jobs=args.jobs,
+              executor=args.executor)
 
 
 if __name__ == "__main__":

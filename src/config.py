@@ -52,10 +52,13 @@ class BlockingConfig:
     use_country_block: bool = True
 
     # --- token blocking ---
+    # max_df_frac was measured on train queries [0, 20k): 0.02 -> 785 s / 20k
+    # queries at 0.8677 recall, 0.008 -> 320 s at 0.8620. The 2.5x speedup for
+    # 0.6 pt of recall is what makes the full test split fit in the time budget.
     use_name_tokens: bool = True
     use_addr_tokens: bool = True
-    max_df_frac: float = 0.02        # block on tokens whose df <= 2% of refs
-    relax_df_frac: float = 0.05      # second pass threshold for "generic" queries
+    max_df_frac: float = 0.008       # block on tokens whose df <= 0.8% of refs
+    relax_df_frac: float = 0.02      # second pass threshold for "generic" queries
     min_block_idf: float = 1.5
     max_tokens_per_query: int = 6    # most discriminative tokens used for blocking
     relax_tokens_per_query: int = 10
@@ -99,6 +102,11 @@ class FeatureConfig:
     use_addr_trigram: bool = True
     use_len_diff: bool = True               # name & address char-length gaps
     use_country_match: bool = True
+    # A 2.3M-pair candidate chunk is split into ~pairs_per_task slices that are
+    # computed in parallel; slices are written as feat_<chunk>_<slice>.parquet so
+    # the number of feature files no longer has to match the candidate chunks.
+    pairs_per_task: int = 400_000
+    max_inflight: int = 6                   # slices in flight, bounds peak RAM
     use_same_source: bool = False           # is the candidate from the same source?
     use_name_char_len: bool = True          # raw char length features for the model
 
@@ -140,7 +148,7 @@ class FeatureConfig:
 class TrainConfig:
     """Model training settings (step 7)."""
 
-    model_type: str = "auto"           # auto | lightgbm | xgboost | sklearn
+    model_type: str = "auto"           # auto | xgboost | lightgbm | sklearn
     val_frac: float = 0.20             # validation split by source1_entity_id
     n_estimators: int = 400
     learning_rate: float = 0.05
@@ -152,9 +160,28 @@ class TrainConfig:
     bagging_freq: int = 1
     subsample_neg_per_pos: float = 2.0  # negatives sampled per positive *per s1*
     max_train_s1: int = 0               # 0 = use all source1 entities
-    n_jobs: int = 16
+    n_jobs: int = 5                     # also drives the features-step worker pool
     early_stopping_rounds: int = 50
     seed: int = 42
+
+    # --- accelerator -------------------------------------------------------
+    # XGBoost is the only backend with a working CUDA path on Windows; its
+    # PyPI wheel ships CUDA support. LightGBM's CUDA learner is Linux-only and
+    # its Windows wheel is OpenCL ("gpu") only, which measured ~11x SLOWER than
+    # CPU hist on this box, so the LightGBM baseline stays on "cpu".
+    use_gpu: bool = True
+    device: str = "cuda"                # xgboost device when use_gpu
+    lgbm_device: str = "cpu"            # lightgbm device: cpu | gpu (OpenCL)
+    xgb_max_depth: int = 8
+    xgb_max_bin: int = 256
+
+    # --- memory guards -----------------------------------------------------
+    # The full validation candidate space (~30M+ rows) is never materialised:
+    # early stopping uses a capped subsample and val_predictions.parquet is
+    # produced by a streaming second pass.
+    val_neg_per_pos: float = 2.0        # negatives per positive in the eval set
+    max_eval_rows: int = 6_000_000      # 0 = no cap on the early-stopping set
+    allow_sklearn_fallback: bool = False  # last-resort CPU model if all else fails
 
 
 @dataclass
