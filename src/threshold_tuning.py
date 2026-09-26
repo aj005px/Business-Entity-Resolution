@@ -84,7 +84,7 @@ def run_tune(split: str, cfg: Config) -> dict:
         "sweep_summary": [(t, p, r, f) for t, p, r, f in rows],
     }
     model_dir = ensure_dir(artifact_path(split, "model"))
-    with open(model_dir / "threshold.json", "w") as fh:
+    with open(model_dir / "threshold.json", "w", encoding="utf-8", newline="\n") as fh:
         json.dump(out, fh, indent=2)
     return out
 

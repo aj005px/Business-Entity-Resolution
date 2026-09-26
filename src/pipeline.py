@@ -68,12 +68,14 @@ STEPS = {
     "prepare": lambda a, c: prepare.run_prepare(a.split, c, workers=a.jobs),
     "index": lambda a, c: run_index(a.split, c),
     "block": lambda a, c: blocking.run_block(a.split, c,
-                                             start=a.start, end=a.end, jobs=a.jobs),
+                                             start=a.start, end=a.end, jobs=a.jobs,
+                                             executor=a.executor),
     "recall": lambda a, c: recall_check.run_recall(a.split, c),
     "gt": lambda a, c: label.build_gt_pairs(a.split),
     "features": lambda a, c: features.run_features(
         a.split, c, start_chunk=a.start_chunk, end_chunk=a.end_chunk),
-    "train": lambda a, c: train_model.run_train(a.split, c, max_rows=a.max_rows),
+    "train": lambda a, c: train_model.run_train(
+        a.split, c, max_rows=a.max_rows, max_eval_rows=a.max_eval_rows),
     "tune": lambda a, c: threshold_tuning.run_tune(a.split, c),
     "infer": lambda a, c: inference.run_inference(a.split, c, threshold=a.threshold),
     "full-train": lambda a, c: run_full_train(c, a.jobs),
@@ -86,7 +88,11 @@ def main(argv=None):
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("step", choices=list(STEPS))
     ap.add_argument("--split", default="train", help="train|test")
-    ap.add_argument("--jobs", type=int, default=16)
+    ap.add_argument("--jobs", type=int, default=6)
+    ap.add_argument("--executor", default="auto",
+                    choices=["auto", "process", "thread", "serial"],
+                    help="block step only: process avoids the GIL, thread is the "
+                         "legacy path, serial is single-process")
     ap.add_argument("--limit", type=int, default=20_000)
     ap.add_argument("--start", type=int, default=0)
     ap.add_argument("--end", type=int, default=None)
@@ -94,6 +100,12 @@ def main(argv=None):
     ap.add_argument("--end-chunk", type=int, default=None)
     ap.add_argument("--threshold", type=float, default=None)
     ap.add_argument("--max-rows", type=int, default=80_000_000)
+    ap.add_argument("--max-eval-rows", type=int, default=None,
+                    help="cap the early-stopping set (0 = uncapped)")
+    ap.add_argument("--model-type", default=None,
+                    choices=["auto", "xgboost", "lightgbm", "sklearn"])
+    ap.add_argument("--device", default=None, help="accelerator device for xgboost")
+    ap.add_argument("--no-gpu", action="store_true")
     ap.add_argument("--max-candidates", type=int, default=None,
                     help="override candidate cap per source1 entity")
     args = ap.parse_args(argv)
@@ -101,6 +113,14 @@ def main(argv=None):
     cfg = Config()
     if args.max_candidates:
         cfg.blocking.max_candidates_per_query = args.max_candidates
+    if args.jobs:
+        cfg.train.n_jobs = args.jobs
+    if args.model_type:
+        cfg.train.model_type = args.model_type
+    if args.device:
+        cfg.train.device = args.device
+    if args.no_gpu:
+        cfg.train.use_gpu = False
     if args.split not in ("train", "test"):
         raise SystemExit("--split must be train or test")
     STEPS[args.step](args, cfg)

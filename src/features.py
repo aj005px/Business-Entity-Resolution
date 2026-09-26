@@ -144,38 +144,62 @@ def run_features(split: str, cfg: Config, start_chunk: int = 0, end_chunk: int |
 
     wanted = set(fcfg.feature_columns)
     total_pairs = 0
-    with Pool(jcfg.n_jobs, initializer=_feat_worker_init) as pool:
+    slice_per_chunk = max(1, fcfg.pairs_per_task)
+    max_inflight = max(1, fcfg.max_inflight)
+    nproc = max(1, min(jcfg.n_jobs, max_inflight))
+    if nproc < jcfg.n_jobs:
+        print(f"[features {split}] {jcfg.n_jobs} jobs capped to {nproc} "
+              f"by max_inflight={max_inflight}", flush=True)
+
+    pending: list = []
+
+    def harvest(block: bool = False) -> bool:
+        """Write finished slices; blocks on the oldest in-flight task."""
+        nonlocal total_pairs
+        while pending and (block or len(pending) >= max_inflight):
+            async_res, c, s, q_idx, r_idx, source, nc_, ac_, blk = pending.pop(0)
+            res = async_res.get()
+            out = pd.DataFrame({
+                "q_idx": q_idx, "r_idx": r_idx, "source": source,
+                "name_tfidf_cos": nc_, "addr_tfidf_cos": ac_, "block_score": blk,
+            } | {k: res[k] for k in res if k in wanted})
+            if keys is not None:
+                out["label"] = label_pairs(out["q_idx"].to_numpy(np.int32),
+                                           out["r_idx"].to_numpy(np.int32), keys)
+            out.to_parquet(out_dir / f"feat_{c:06d}_{s:03d}.parquet", index=False)
+            total_pairs += len(out)
+            del out, res
+        return True
+
+    with Pool(nproc, initializer=_feat_worker_init) as pool:
         for c, f in enumerate(files):
             cand = pd.read_parquet(f)
             if len(cand) == 0:
                 continue
-            payload = _chunk_payload(
-                cand["q_idx"].to_numpy(np.int32),
-                cand["r_idx"].to_numpy(np.int32),
-                queries, refs, ncfg,
-            )
-            res = pool.apply(compute_chunk_features, args=payload + (ncfg,))
-            header = {
-                "q_idx": cand["q_idx"].to_numpy(np.int32),
-                "r_idx": cand["r_idx"].to_numpy(np.int32),
-                "source": cand["source"].to_numpy(np.int8),
-                "name_tfidf_cos": cand["name_cos"].to_numpy(np.float32),
-                "addr_tfidf_cos": cand["addr_cos"].to_numpy(np.float32),
-                "block_score": cand["block_score"].to_numpy(np.float32),
-            }
-            out = pd.DataFrame(header | {k: res[k] for k in res if k in wanted})
-            if keys is not None:
-                out["label"] = label_pairs(
-                    out["q_idx"].to_numpy(np.int32),
-                    out["r_idx"].to_numpy(np.int32),
-                    keys,
+            n_rows = len(cand)
+            n_slices = max(1, (n_rows + slice_per_chunk - 1) // slice_per_chunk)
+            for s in range(n_slices):
+                lo, hi = s * slice_per_chunk, min((s + 1) * slice_per_chunk, n_rows)
+                payload = _chunk_payload(
+                    cand["q_idx"].to_numpy(np.int32)[lo:hi],
+                    cand["r_idx"].to_numpy(np.int32)[lo:hi],
+                    queries, refs, ncfg,
                 )
-            out.to_parquet(out_dir / f"feat_{start_chunk + c:06d}.parquet", index=False)
-            total_pairs += len(out)
-            if c % 10 == 0 or c == len(files) - 1:
-                npos = int(out["label"].sum()) if "label" in out else 0
-                print(f"[features {split}] file {c+1}/{len(files)} pairs={total_pairs:,} label_pos={npos}", flush=True)
-            del cand, out, payload, res
+                async_res = pool.apply_async(compute_chunk_features,
+                                             args=payload + (ncfg,))
+                pending.append((async_res, start_chunk + c, s,
+                                cand["q_idx"].to_numpy(np.int32)[lo:hi],
+                                cand["r_idx"].to_numpy(np.int32)[lo:hi],
+                                cand["source"].to_numpy(np.int8)[lo:hi],
+                                cand["name_cos"].to_numpy(np.float32)[lo:hi],
+                                cand["addr_cos"].to_numpy(np.float32)[lo:hi],
+                                cand["block_score"].to_numpy(np.float32)[lo:hi]))
+                harvest()
+            del cand
+            if c % 5 == 0 or c == len(files) - 1:
+                print(f"[features {split}] file {c+1}/{len(files)} pairs={total_pairs:,} "
+                      f"inflight={len(pending)}", flush=True)
+        harvest(block=True)
     print(f"[features {split}] done. total pairs={total_pairs:,}")
     del queries, refs
     gc.collect()

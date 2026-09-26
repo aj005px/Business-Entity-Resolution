@@ -1,0 +1,28 @@
+# Normalise text to LF in the repository, check out LF on every platform
+# (including Windows/WSL) so CRLF never reappears in generated files.
+* text=auto eol=lf
+
+# Windows-native scripts must keep CRLF to stay runnable.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary / data files: never diff, never translate.
+*.parquet binary
+*.tsv binary
+*.csv binary
+*.pkl binary
+*.npy binary
+*.npz binary
+*.joblib binary
+*.pt binary
+*.bin binary
+*.feather binary
+*.arrow binary
+*.jpg binary
+*.jpeg binary
+*.png binary
+*.gif binary
+*.pdf binary
+*.zip binary
+*.gz binary
